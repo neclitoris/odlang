@@ -1,0 +1,125 @@
+cabal-version: 2.2
+
+-- This file has been generated from package.yaml by hpack version 0.37.0.
+--
+-- see: https://github.com/sol/hpack
+
+name:           odlang
+version:        0.1.0.0
+description:    Please see the README on GitHub at <https://github.com/githubuser/odlang#readme>
+homepage:       https://github.com/githubuser/odlang#readme
+bug-reports:    https://github.com/githubuser/odlang/issues
+author:         Author name here
+maintainer:     example@example.com
+copyright:      2025 Author name here
+license:        BSD-3-Clause
+license-file:   LICENSE
+build-type:     Simple
+extra-source-files:
+    README.md
+    CHANGELOG.md
+
+source-repository head
+  type: git
+  location: https://github.com/githubuser/odlang
+
+library
+  exposed-modules:
+      Lib
+      OdLang.Type.Solver
+  other-modules:
+      Paths_odlang
+  autogen-modules:
+      Paths_odlang
+  hs-source-dirs:
+      src
+  default-extensions:
+      PatternSynonyms
+      TypeApplications
+      StandaloneDeriving
+      GADTs
+      QuantifiedConstraints
+      UndecidableInstances
+      DeriveFunctor
+      DeriveTraversable
+      ScopedTypeVariables
+      BlockArguments
+      LambdaCase
+      ImportQualifiedPost
+      ViewPatterns
+      FlexibleContexts
+  ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints
+  build-depends:
+      base >=4.7 && <5
+    , bifunctors >=5.6 && <6
+    , containers >=0.8 && <1
+    , deriving-compat >=0.6 && <1
+    , mtl >=2.3 && <3
+  default-language: Haskell2010
+
+executable odlang-exe
+  main-is: Main.hs
+  other-modules:
+      Paths_odlang
+  autogen-modules:
+      Paths_odlang
+  hs-source-dirs:
+      app
+  default-extensions:
+      PatternSynonyms
+      TypeApplications
+      StandaloneDeriving
+      GADTs
+      QuantifiedConstraints
+      UndecidableInstances
+      DeriveFunctor
+      DeriveTraversable
+      ScopedTypeVariables
+      BlockArguments
+      LambdaCase
+      ImportQualifiedPost
+      ViewPatterns
+      FlexibleContexts
+  ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -threaded -rtsopts -with-rtsopts=-N
+  build-depends:
+      base >=4.7 && <5
+    , bifunctors >=5.6 && <6
+    , containers >=0.8 && <1
+    , deriving-compat >=0.6 && <1
+    , mtl >=2.3 && <3
+    , odlang
+  default-language: Haskell2010
+
+test-suite odlang-test
+  type: exitcode-stdio-1.0
+  main-is: Spec.hs
+  other-modules:
+      Paths_odlang
+  autogen-modules:
+      Paths_odlang
+  hs-source-dirs:
+      test
+  default-extensions:
+      PatternSynonyms
+      TypeApplications
+      StandaloneDeriving
+      GADTs
+      QuantifiedConstraints
+      UndecidableInstances
+      DeriveFunctor
+      DeriveTraversable
+      ScopedTypeVariables
+      BlockArguments
+      LambdaCase
+      ImportQualifiedPost
+      ViewPatterns
+      FlexibleContexts
+  ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -threaded -rtsopts -with-rtsopts=-N
+  build-depends:
+      base >=4.7 && <5
+    , bifunctors >=5.6 && <6
+    , containers >=0.8 && <1
+    , deriving-compat >=0.6 && <1
+    , mtl >=2.3 && <3
+    , odlang
+  default-language: Haskell2010
