@@ -18,6 +18,7 @@ import Data.Either
 import Data.IntMap qualified as M
 import Data.List
 import Data.Maybe
+import Data.Void
 import Text.Show.Deriving
 
 import Debug.Trace
@@ -198,13 +199,42 @@ fromAssumption = fmap (fmap F)
 withSkolems :: Bifunctor f => Scope (Free f) var -> Skope (Free f) var
 withSkolems = fmap Right
 
+class Variable var where
+  isUni :: var -> Bool
+  isSkolem :: var -> Bool
+  level :: var -> Int
+
+instance Variable Void where
+  isUni = absurd
+  isSkolem = absurd
+  level = absurd
+
+instance Variable var => Variable (Inc var) where
+  isUni (B i) = True
+  isUni (F v) = isUni v
+
+  isSkolem (B i) = False
+  isSkolem (F v) = isSkolem v
+
+  level (B _) = 0
+  level (F v) = 1 + level v
+
+instance Variable var => Variable (Either Skolem var) where
+  isUni (Left _) = False
+  isUni (Right v) = isUni v
+
+  isSkolem (Left _) = True
+  isSkolem (Right v) = isSkolem v
+
+  level (Left _) = 0
+  level (Right v) = level v
+
 solve :: forall f var .
       ( forall v . Data v => Data (FreeS f v)
       , forall v . Eq v => Eq (Free f v)
       , Eq2 f, Show2 f
       , Bifunctor f, Bifoldable f, Bitraversable f
-      , Eq var, Show var
-      , Data var)
+      , Eq var, Show var , Data var, Variable var)
       => [Constraint f var] -> [Constraint f var]
       -> [Constraint f var]
 solve assume consts = evalState (go assume consts []) False
@@ -231,8 +261,10 @@ solve assume consts = evalState (go assume consts []) False
       trace ("assumptions = " ++ show assume ++ "\nconstraints = " ++ show (reverse r ++ (c:cs)) ++ "\n") $
       case c of
         CEq t1 t2 | t1 == t2 -> put True >> go assume cs r
-        CEq (Pure a) t -> put True >> go assume (map (substitute (subst a t)) cs) (map (substitute (subst a t)) r)
-        CEq t (Pure a) -> put True >> go assume (map (substitute (subst a t)) cs) (map (substitute (subst a t)) r)
+        CEq (Pure a) t | isUni a && level a <= maximum (fmap level t)
+          -> put True >> go assume (map (substitute (subst a t)) cs) (map (substitute (subst a t)) r)
+        CEq t (Pure a) | isUni a && level a <= maximum (fmap level t)
+          -> put True >> go assume (map (substitute (subst a t)) cs) (map (substitute (subst a t)) r)
         CEq (Free f1) (Free f2) | sameConstr f1 f2 -> put True >> go assume (genConstraints f1 f2 ++ cs) r
         CEq _ _ -> go assume cs (c:r)
 
@@ -251,6 +283,7 @@ solve assume consts = evalState (go assume consts []) False
                 _:_ -> error "Ambiguous assumptions"
                 [] -> go assume cs (c:r)
 
-        CImpl (map fromAssumption -> a) c
-          -> let Just res = traverse contract $ solve (map weaken assume ++ a) c
-              in put True >> go assume (res ++ cs) r
+        CImpl (map fromAssumption -> a) w
+          -> case traverse contract $ solve (map weaken assume ++ a) w of
+               Just res -> put True >> go assume (res ++ cs) r
+               Nothing -> go assume cs (c:r)

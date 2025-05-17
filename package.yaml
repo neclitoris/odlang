@@ -77,3 +77,4 @@ default-extensions:
 - ImportQualifiedPost
 - ViewPatterns
 - FlexibleContexts
+- FlexibleInstances
