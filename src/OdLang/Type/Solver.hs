@@ -111,6 +111,7 @@ data Constraint f var where
         -> Constraint f var
 
 deriving instance (Show var, Show2 f) => Show (Constraint f var)
+deriving instance (Eq var, Eq2 f) => Eq (Constraint f var)
 deriving instance Bifunctor f => Functor (Constraint f)
 deriving instance Bifoldable f => Foldable (Constraint f)
 deriving instance Bitraversable f => Traversable (Constraint f)
@@ -197,7 +198,9 @@ fromAssumption :: Bifunctor f => Constraint f (Either Skolem var) -> Skope (Cons
 fromAssumption = fmap (fmap F)
 
 withSkolems :: Bifunctor f => Scope (Free f) var -> Skope (Free f) var
-withSkolems = fmap Right
+withSkolems = fmap \case
+  B i -> Left $ Skolem i
+  v   -> Right v
 
 class Variable var where
   isUni :: var -> Bool
@@ -260,7 +263,7 @@ solve assume consts = evalState (go assume consts []) False
     go assume (c:cs) r =
       trace ("assumptions = " ++ show assume ++ "\nconstraints = " ++ show (reverse r ++ (c:cs)) ++ "\n") $
       case c of
-        CEq t1 t2 | t1 == t2 -> put True >> go assume cs r
+        CEq t1 t2 | t1 == t2 -> go assume cs r
         CEq (Pure a) t | isUni a && level a <= maximum (fmap level t)
           -> put True >> go assume (map (substitute (subst a t)) cs) (map (substitute (subst a t)) r)
         CEq t (Pure a) | isUni a && level a <= maximum (fmap level t)
@@ -272,7 +275,7 @@ solve assume consts = evalState (go assume consts []) False
           case [a | a@(CPred p' ts') <- assume
                , and $ zipWith (==) ts ts'
                , p == p', length ts == length ts'] of
-            [_] -> put True >> go assume cs r
+            [_] -> go assume cs r
             _:_  -> error "Ambiguous assumptions"
             [] ->
               case [map (substitute m) a
@@ -283,7 +286,10 @@ solve assume consts = evalState (go assume consts []) False
                 _:_ -> error "Ambiguous assumptions"
                 [] -> go assume cs (c:r)
 
-        CImpl (map fromAssumption -> a) w
-          -> case traverse contract $ solve (map weaken assume ++ a) w of
-               Just res -> put True >> go assume (res ++ cs) r
-               Nothing -> go assume cs (c:r)
+        CImpl _ [] -> go assume cs r
+        CImpl a w ->
+          do
+            let res = solve (map weaken assume ++ (map fromAssumption a)) w
+            pure $ trace $ "implication: before = " ++ show w ++ "\nafter = " ++ show res ++ "\n\n"
+            when (res /= w) $ put True
+            go assume cs (CImpl a res : r)
