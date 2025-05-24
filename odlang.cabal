@@ -27,6 +27,7 @@ library
   exposed-modules:
       Lib
       OdLang.Core.Type
+      OdLang.Syntax.Pretty
       OdLang.Type.Free
       OdLang.Type.Solver
   other-modules:
