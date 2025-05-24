@@ -22,7 +22,7 @@ import Language.Haskell.TH.Syntax qualified as TH
 import OdLang.Type.Free
 
 class Equational (t :: K.Type -> K.Type -> K.Type) where
-  equal :: FreeS t var -> FreeS t var -> Maybe [Constraint t var]
+  equal :: Eq var => FreeS t var -> FreeS t var -> Maybe [Constraint t var]
   sameConstr :: FreeS t var -> FreeS t var' -> Bool
 
 defaultEqual :: (Bitraversable t, Equational t)
@@ -57,7 +57,7 @@ type Pred = String
 
 newtype Skolem = Skolem Int deriving (Eq, Show)
 
-type SkInc var = Either Skolem (Inc var)
+type SkInc var = Inc (Either Skolem var)
 
 type Skope term var = term (SkInc var)
 
@@ -82,13 +82,13 @@ substitute s (CImpl a c) =
         (map (substitute (traverse $ traverse s)) c)
 
 weaken :: Functor f => f var -> Skope f var
-weaken = fmap (Right . F)
+weaken = fmap (F . Right)
 
 contract :: Traversable f => Skope f var -> Maybe (f var)
 contract = sequence . fmap \case
-  Left _ -> Nothing
-  Right (B _) -> Nothing
-  Right (F v) -> Just v
+  B _ -> Nothing
+  F (Right v) -> Just v
+  F (Left _) -> Nothing
 
 contractT :: Traversable f => Scope f var -> Maybe (f var)
 contractT = sequence . fmap \case
@@ -141,17 +141,17 @@ matches a b = fmap sub $ join $ fmap sequence $ combineList $ zipWith (matches' 
 
 ensureAssumption :: Bitraversable f => Skope (Constraint f) var -> Maybe (Constraint f (Either Skolem var))
 ensureAssumption = sequence . fmap \case
-                     Left sk -> Just $ Left sk
-                     Right (F v) -> Just $ Right v
-                     Right (B _) -> Nothing
+                     F (Left sk) -> Just $ Left sk
+                     F (Right v) -> Just $ Right v
+                     B _ -> Nothing
 
 fromAssumption :: Bifunctor f => Constraint f (Either Skolem var) -> Skope (Constraint f) var
-fromAssumption = fmap (fmap F)
+fromAssumption = fmap F
 
 withSkolems :: Bifunctor f => Scope (Free f) var -> Skope (Free f) var
 withSkolems = fmap \case
-  B i -> Left $ Skolem i
-  v   -> Right v
+  B i -> F $ Left $ Skolem i
+  F v -> F $ Right v
 
 class Variable var where
   isUni :: var -> Bool
@@ -186,7 +186,7 @@ instance Variable var => Variable (Either Skolem var) where
   isSkolem (Right v) = isSkolem v
 
   level (Left _) = 0
-  level (Right v) = level v
+  level (Right v) = 1 + level v
 
 solve :: forall f var .
       ( forall v . Eq v => Eq (Free f v)
