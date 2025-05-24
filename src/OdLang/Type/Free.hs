@@ -25,10 +25,10 @@ instance Bifunctor term => Functor (Free term) where
 
 instance Bifunctor term => Applicative (Free term) where
   (<*>) = ap
-  pure = return
+  pure = Pure
 
 instance Bifunctor term => Monad (Free term) where
-  return = Pure
+  return = pure
   Pure v >>= f = f v
   Free t >>= f = Free (bimap (>>= traverse f) (>>= f) t)
 
@@ -39,3 +39,6 @@ instance Bifoldable term => Foldable (Free term) where
 instance Bitraversable term => Traversable (Free term) where
   traverse f (Pure v) = Pure <$> f v
   traverse f (Free t) = Free <$> bitraverse (traverse $ traverse f) (traverse f) t
+
+deriving instance (Eq2 term, Eq var) => Eq (Free term var)
+deriving instance (Show2 term, Show var) => Show (Free term var)
