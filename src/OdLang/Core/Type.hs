@@ -1,26 +1,26 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# OPTIONS_GHC -Wno-missing-pattern-synonym-signatures #-}
+{-# OPTIONS_GHC -Wno-missing-pattern-synonym-signatures -Wno-name-shadowing #-}
 module OdLang.Core.Type where
 
+import Data.Bifunctor
 import Data.Bifunctor.TH
 import Data.Functor.Classes
-import Data.Map qualified as M
 import Data.Eq.Deriving
 import Control.Monad
-import Control.Monad.Reader
 import Text.Show.Deriving
 import Prettyprinter
-import Prettyprinter.Render.String
 
 import OdLang.Syntax.Pretty
 import OdLang.Type.Free
 import OdLang.Type.Solver
 
-data Kind = KData | KMult | KType
-          | Kind :->: Kind
-          | Kind :*: Kind
-          | KRow Kind
+data KindF sc ty = KData | KMult | KType
+                 | ty :!->: ty
+                 | ty :!*: ty
+                 | KRow ty
+
+type Kind = Free KindF
 
 data TypeF sc ty where
   TAbsF :: sc -> TypeF sc ty
@@ -36,18 +36,20 @@ data TypeF sc ty where
   TRowSupF :: ty -> TypeF sc ty
 
   TDataF :: ty -> TypeF sc ty
-  (:->>) :: ty -> ty -> TypeF sc ty
+  (:!->) :: ty -> ty -> TypeF sc ty
   TDataAbsF :: sc -> TypeF sc ty
   TRecordF, TPaletteF, TUnionF :: ty -> TypeF sc ty
 
   TMultF :: ty -> TypeF sc ty
   TMultLinF, TMultAffF, TMultRelF, TMultUnresF :: TypeF sc ty
-  TMultMeetF, TMultJoinF :: ty -> ty -> TypeF sc ty
+  (:!/\), (:!\/) :: ty -> ty -> TypeF sc ty
   TTyConF :: ty -> ty -> TypeF sc ty
 
-infixr 0 :->>
+infixl 6 :!/\
+infixl 5 :!\/
+infixr 0 :!->
 
-type Type var = Free TypeF var
+type Type = Free TypeF
 
 pattern TVar v = Pure v
 pattern TAbs t = Free (TAbsF t)
@@ -63,7 +65,7 @@ pattern TRowInf t = Free (TRowInfF t)
 pattern TRowSup t = Free (TRowSupF t)
 
 pattern TData t = Free (TDataF t)
-pattern t1 :-> t2 = Free (t1 :->> t2)
+pattern t1 :-> t2 = Free (t1 :!-> t2)
 pattern TDataAbs t = Free (TDataAbsF t)
 pattern TRecord t = Free (TRecordF t)
 pattern TPalette t = Free (TPaletteF t)
@@ -74,10 +76,12 @@ pattern TMultLin = Free TMultLinF
 pattern TMultAff = Free TMultAffF
 pattern TMultRel = Free TMultRelF
 pattern TMultUnres = Free TMultUnresF
-pattern TMultMeet t1 t2 = Free (TMultMeetF t1 t2)
-pattern TMultJoin t1 t2 = Free (TMultJoinF t1 t2)
+pattern t1 :/\ t2 = Free (t1 :!/\ t2)
+pattern t1 :\/ t2 = Free (t1 :!\/ t2)
 pattern TTyCon t1 t2 = Free (TTyConF t1 t2)
 
+infixl 6 :/\
+infixl 5 :\/
 infixr 0 :->
 
 deriving instance (Eq b, Eq a) => Eq (TypeF b a)
@@ -128,6 +132,30 @@ apply f x = f >>= s
 unfoldMu :: Type (Inc var) -> Type var
 unfoldMu f = apply f (TFix f)
 
+eval :: Type var -> Type var
+eval = \case
+  Pure v -> Pure v
+  Free f -> evalF $ bimap eval eval f
+
+evalF :: FreeS TypeF var -> Type var
+evalF = eval' True
+  where
+    -- beta reduce
+    eval' _ (TAppF (TAbs t) u) = apply t u
+    -- evaluate meet
+    eval' _ (TMultLin :!/\ _) = TMultLin
+    eval' _ (TMultUnres :!/\ a) = a
+    eval' _ (TMultAff :!/\ TMultRel) = TMultLin
+    eval' True (a :!/\ b) = eval' False (b :!/\ a)
+    -- evaluate join
+    eval' _ (TMultLin :!\/ a) = a
+    eval' _ (TMultUnres :!\/ _) = TMultUnres
+    eval' _ (TMultAff :!\/ TMultRel) = TMultUnres
+    eval' True (a :!\/ b) = eval' False (b :!\/ a)
+    -- can't recurse anymore
+    eval' True e = Free e
+    eval' False e = Free e
+
 floatKey :: String -> Type var -> Type var
 floatKey = floatKey' id
   where
@@ -136,50 +164,38 @@ floatKey = floatKey' id
       | otherwise = floatKey' (f . TRowExt n t) k r
     floatKey' f _ t = f t
 
-    eval (TApp (eval -> TAbs t) u) = apply t u
-    eval t = t
-
 instance Equational TypeF where
-  -- KBeta
-  equal (TAppF (TAbs t) u) v =
-    Just [CEq (apply t u) (Free v)]
-  equal v (TAppF (TAbs t) u) =
-    Just [CEq (apply t u) (Free v)]
-  -- Unfold
-  equal (TFixF t1) (TFixF t2) =
-    Just [CImpl [fmap Right (TFix t1) `CEq` fmap Right (TFix t2)]
-                [weaken (unfoldMu t1) `CEq` weaken (unfoldMu t2)]]
-  equal (TFixF t1) t2 =
-    Just [CEq (unfoldMu t1) (Free t2)]
-  equal t2 (TFixF t1) =
-    Just [CEq (unfoldMu t1) (Free t2)]
-  -- MapEmpty
-  equal (TRowMapF f TRowE) t = Just [CEq TRowE (Free t)]
-  equal t (TRowMapF f TRowE) = Just [CEq TRowE (Free t)]
-  -- MapExt
-  equal (TRowMapF f (TRowExt n t r)) u =
-    Just [CEq (TRowExt n (TApp f t) (TRowMap f r)) (Free u)]
-  equal u (TRowMapF f (TRowExt n t r)) =
-    Just [CEq (TRowExt n (TApp f t) (TRowMap f r)) (Free u)]
-  -- ProjRed
-  equal (TProjF False (TProd t1 t2)) u = Just [CEq t1 (Free u)]
-  equal (TProjF True  (TProd t1 t2)) u = Just [CEq t2 (Free u)]
-  equal u (TProjF False (TProd t1 t2)) = Just [CEq t1 (Free u)]
-  equal u (TProjF True  (TProd t1 t2)) = Just [CEq t2 (Free u)]
-  -- DataType
-  equal (TDataF (TTyCon t _)) u = Just [CEq t (Free u)]
-  equal u (TDataF (TTyCon t _)) = Just [CEq t (Free u)]
-  -- MultType
-  equal (TMultF (TTyCon _ t)) u = Just [CEq t (Free u)]
-  equal u (TMultF (TTyCon _ t)) = Just [CEq t (Free u)]
-  -- TypeExt
-  equal (TTyConF (TData t1) (TMult t2)) u | t1 == t2 = Just [CEq t1 (Free u)]
-  equal u (TTyConF (TData t1) (TMult t2)) | t1 == t2 = Just [CEq t1 (Free u)]
-  -- Row equality
-  equal a@(TRowExtF n1 t1 r1) b@(TRowExtF n2 t2 r2)
-    | TRowExt n3 t3 r3 <- floatKey n1 (Free b), n1 == n3 = Just [CEq t1 t3, CEq r1 r3]
-    | TRowExt n3 t3 r3 <- floatKey n2 (Free a), n2 == n3 = Just [CEq t2 t3, CEq r2 r3]
+  equal a b = equal' True (eval (Free a)) (eval (Free b))
+    where
+      -- Unfold
+      equal' _ (TFix t1) (TFix t2) =
+        Just [CImpl [fmap Right (TFix t1) `CEq` fmap Right (TFix t2)]
+                    [weaken (unfoldMu t1) `CEq` weaken (unfoldMu t2)]]
+      equal' _ (TFix t1) t2 =
+        Just [CEq (unfoldMu t1) t2]
+      -- MapEmpty
+      equal' _ (TRowMap _ TRowE) t = Just [CEq TRowE t]
+      -- MapExt
+      equal' _ (TRowMap f (TRowExt n t r)) u =
+        Just [CEq (TRowExt n (TApp f t) (TRowMap f r)) u]
+      -- ProjRed
+      equal' _ (TProj False (TProd t _)) u = Just [CEq t u]
+      equal' _ (TProj True  (TProd _ t)) u = Just [CEq t u]
+      -- DataType
+      equal' _ (TData (TTyCon t _)) u = Just [CEq t u]
+      -- MultType
+      equal' _ (TMult (TTyCon _ t)) u = Just [CEq t u]
+      -- TypeExt
+      equal' _ (TTyCon (TData t1) (TMult t2)) u | t1 == t2 = Just [CEq t1 u]
+      -- Row equality
+      equal' _ a@(TRowExt n1 t1 r1) b@(TRowExt n2 t2 r2)
+        | TRowExt n3 t3 r3 <- floatKey n1 b, n1 == n3 = Just [CEq t1 t3, CEq r1 r3]
+        | TRowExt n3 t3 r3 <- floatKey n2 a, n2 == n3 = Just [CEq t2 t3, CEq r2 r3]
 
-  equal a b = defaultEqual a b
+      equal' True a b = equal' False b a
+      equal' False (Free a) (Free b) = defaultEqual a b
+      equal' False a' b'
+        | Free a == a' && Free b == b' = Nothing
+        | otherwise = Just [CEq a' b']
 
   sameConstr = $(makeSameConstr ''TypeF)

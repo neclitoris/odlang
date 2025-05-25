@@ -212,10 +212,18 @@ solve assume consts = evalState (go assume consts []) False
 
     go assume (c:cs) r =
       case c of
+        CEq t1 t2 | t1 == t2 -> go assume cs r
+
         CEq t1 t2 |  CEq t1 t2 `elem` assume
                   || CEq t2 t1 `elem` assume -> go assume cs r
 
-        CEq t1 t2 | t1 == t2 -> go assume cs r
+        CEq t1 t2
+          | [s] <- [ map (substitute m) a
+                   | a `CImpl` [ensureAssumption -> Just (CEq t1' t2')] <- assume
+                   , m <- take 1 $ catMaybes [ matches [t1, t2] [t1', t2']
+                                             , matches [t2, t1] [t1', t2']]] ->
+            put True >> go assume (s ++ cs) r
+
         CEq (Pure a) t | isUni a && level a <= maximum (fmap level t) && all (/= a) t
           -> put True >> go assume (map (substitute (subst a t)) cs) (map (substitute (subst a t)) r)
         CEq t (Pure a) | isUni a && level a <= maximum (fmap level t) && all (/= a) t
